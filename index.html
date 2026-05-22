@@ -1078,9 +1078,14 @@ td small {
     <script>
 const STORAGE_KEY = "narai_content_entries_v1";
 const API_ENDPOINT = "/api/entries";
+const SUPABASE_URL = "https://fdjfhgqhqivgjnvvxzgf.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_IyQ8Ibkmw6sUUtTe6Xhdqg_CEPenvSU";
+const SUPABASE_TABLE = "tracker_store";
+const SUPABASE_ROW_ID = "main";
 const isWebPage = location.protocol === "http:" || location.protocol === "https:";
 const isGithubPages = location.hostname.endsWith(".github.io");
-const apiEnabled = isWebPage && !isGithubPages;
+const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && isWebPage);
+const apiEnabled = isWebPage && !isGithubPages && !supabaseEnabled;
 const SYNC_INTERVAL_MS = 10000;
 
 const plan = [
@@ -1302,7 +1307,7 @@ loadEntries().then((loadedEntries) => {
   render();
 });
 
-if (apiEnabled) {
+if (supabaseEnabled || apiEnabled) {
   window.addEventListener("focus", refreshEntriesFromApi);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshEntriesFromApi();
@@ -1313,6 +1318,14 @@ if (apiEnabled) {
 }
 
 async function loadEntries() {
+  if (supabaseEnabled) {
+    try {
+      return await fetchSupabaseEntries();
+    } catch {
+      showStatus("เชื่อม Supabase ไม่ได้ ใช้ข้อมูลในเครื่องชั่วคราว");
+    }
+  }
+
   if (apiEnabled) {
     try {
       return await fetchRemoteEntries();
@@ -1328,6 +1341,17 @@ async function loadEntries() {
   }
 }
 
+async function fetchSupabaseEntries() {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(SUPABASE_ROW_ID)}&select=entries`, {
+    cache: "no-store",
+    headers: getSupabaseHeaders(),
+  });
+
+  if (!response.ok) throw new Error("Supabase request failed");
+  const rows = await response.json();
+  return Array.isArray(rows?.[0]?.entries) ? rows[0].entries : [];
+}
+
 async function fetchRemoteEntries() {
   const response = await fetch(API_ENDPOINT, { cache: "no-store" });
   if (!response.ok) throw new Error("Storage request failed");
@@ -1335,10 +1359,10 @@ async function fetchRemoteEntries() {
 }
 
 async function refreshEntriesFromApi() {
-  if (!apiEnabled || document.querySelector("#editDialog")?.open) return;
+  if ((!supabaseEnabled && !apiEnabled) || document.querySelector("#editDialog")?.open) return;
 
   try {
-    entries = normalizeEntries(await fetchRemoteEntries());
+    entries = normalizeEntries(supabaseEnabled ? await fetchSupabaseEntries() : await fetchRemoteEntries());
     updateYearOptions();
     render();
   } catch {
@@ -1353,6 +1377,31 @@ function saveAndRender() {
 }
 
 async function saveEntries() {
+  if (supabaseEnabled) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          ...getSupabaseHeaders(),
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({
+          id: SUPABASE_ROW_ID,
+          entries,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) throw new Error("Supabase save failed");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      return;
+    } catch {
+      showStatus("บันทึกบนหน้านี้แล้ว แต่ยังส่งเข้า Supabase ไม่สำเร็จ");
+    }
+  }
+
   if (apiEnabled) {
     try {
       const response = await fetch(API_ENDPOINT, {
@@ -1376,6 +1425,13 @@ async function saveEntries() {
   } catch {
     showStatus("บันทึกแสดงบนหน้านี้แล้ว แต่เบราว์เซอร์ไม่ให้เก็บข้อมูลถาวร");
   }
+}
+
+function getSupabaseHeaders() {
+  return {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+  };
 }
 
 function render() {
