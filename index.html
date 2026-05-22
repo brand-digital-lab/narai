@@ -1320,9 +1320,12 @@ if (supabaseEnabled || apiEnabled) {
 async function loadEntries() {
   if (supabaseEnabled) {
     try {
-      return await fetchSupabaseEntries();
+      const remoteEntries = await fetchSupabaseEntries();
+      localStorage.removeItem(STORAGE_KEY);
+      return remoteEntries;
     } catch {
-      showStatus("เชื่อม Supabase ไม่ได้ ใช้ข้อมูลในเครื่องชั่วคราว");
+      showStatus("เชื่อม Supabase ไม่ได้ กรุณารีเฟรชอีกครั้ง");
+      return [];
     }
   }
 
@@ -1395,10 +1398,12 @@ async function saveEntries() {
       });
 
       if (!response.ok) throw new Error("Supabase save failed");
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      localStorage.removeItem(STORAGE_KEY);
+      refreshEntriesFromApi();
       return;
     } catch {
-      showStatus("บันทึกบนหน้านี้แล้ว แต่ยังส่งเข้า Supabase ไม่สำเร็จ");
+      showStatus("ยังส่งเข้า Supabase ไม่สำเร็จ กรุณาลองบันทึกอีกครั้ง");
+      return;
     }
   }
 
