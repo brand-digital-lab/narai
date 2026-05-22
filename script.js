@@ -235,19 +235,28 @@ if (apiEnabled) {
 }
 
 async function loadEntries() {
-  if (apiEnabled) {
-    try {
-      return await fetchRemoteEntries();
-    } catch {
-      showStatus("เชื่อม storage ไม่ได้ ใช้ข้อมูลในเครื่องชั่วคราว");
+  // 1) โหลดข้อมูลหลักจากไฟล์ entries.json ก่อน
+  // เหมาะสำหรับ GitHub Pages เพราะไม่มีฐานข้อมูลกลางแบบ Netlify
+  try {
+    const response = await fetch("./entries.json", { cache: "no-store" });
+    if (response.ok) {
+      const fileData = await response.json();
+      if (Array.isArray(fileData)) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fileData));
+        return fileData;
+      }
     }
+  } catch (error) {
+    console.warn("Cannot load entries.json", error);
   }
 
+  // 2) ถ้าโหลด entries.json ไม่ได้ ค่อยใช้ข้อมูลที่เคยเก็บในเครื่อง
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
   } catch {
     return [];
   }
+}
 }
 
 async function fetchRemoteEntries() {
