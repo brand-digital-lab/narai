@@ -785,6 +785,81 @@ td small {
   color: white;
 }
 
+
+[hidden] { display: none !important; }
+
+.auth-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 28px;
+  background: rgba(26, 30, 37, 0.94);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(22px);
+}
+
+.auth-card h1 {
+  margin-bottom: 10px;
+  font-size: 2rem;
+}
+
+.auth-card .lead {
+  margin-bottom: 20px;
+  font-size: 0.94rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.auth-message {
+  min-height: 24px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.user-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-email {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-button {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+@media (max-width: 680px) {
+  .auth-actions { grid-template-columns: 1fr; }
+  .user-actions { width: 100%; justify-content: space-between; }
+}
+
 @media (max-width: 1080px) {
   .summary-grid,
   .social-grid,
@@ -863,7 +938,30 @@ td small {
 </style>
   </head>
   <body>
-    <main class="app-shell">
+    <section id="authGate" class="auth-gate">
+      <div class="auth-card">
+        <p class="eyebrow">Secure Access</p>
+        <h1>Narai Property</h1>
+        <p class="lead">เข้าสู่ระบบก่อนใช้งาน Content & Social Dashboard</p>
+        <form id="authForm" class="auth-form">
+          <label>
+            <span>Email</span>
+            <input id="authEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="authPassword" type="password" autocomplete="current-password" minlength="6" required />
+          </label>
+          <div class="auth-actions">
+            <button class="save-button" type="submit">Sign in</button>
+            <button class="ghost-button" id="signUpButton" type="button">Create account</button>
+          </div>
+        </form>
+        <p id="authMessage" class="auth-message" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <main id="appShell" class="app-shell" hidden>
       <header class="topbar">
         <div class="brand">
           <div>
@@ -875,6 +973,10 @@ td small {
           <span>ปีที่ติดตาม</span>
           <select id="yearFilter" aria-label="เลือกปี"></select>
         </label>
+        <div class="user-actions">
+          <span id="userEmail" class="user-email"></span>
+          <button id="logoutButton" class="ghost-button logout-button" type="button">Sign out</button>
+        </div>
       </header>
 
       <section class="hero" id="dashboard">
@@ -1075,6 +1177,7 @@ td small {
       </form>
     </dialog>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
     <script>
 const STORAGE_KEY = "narai_content_entries_v1";
 const API_ENDPOINT = "/api/entries";
@@ -1087,6 +1190,15 @@ const isGithubPages = location.hostname.endsWith(".github.io");
 const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && isWebPage);
 const apiEnabled = isWebPage && !isGithubPages && !supabaseEnabled;
 const SYNC_INTERVAL_MS = 10000;
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
+let accessToken = "";
+let appStarted = false;
 
 const plan = [
   {
@@ -1184,6 +1296,15 @@ const socialForm = document.querySelector("#socialForm");
 const trackSelect = document.querySelector("#trackSelect");
 const editTrack = document.querySelector("#editTrack");
 const socialPlatform = document.querySelector("#socialPlatform");
+const authGate = document.querySelector("#authGate");
+const appShell = document.querySelector("#appShell");
+const authForm = document.querySelector("#authForm");
+const authEmail = document.querySelector("#authEmail");
+const authPassword = document.querySelector("#authPassword");
+const authMessage = document.querySelector("#authMessage");
+const signUpButton = document.querySelector("#signUpButton");
+const logoutButton = document.querySelector("#logoutButton");
+const userEmail = document.querySelector("#userEmail");
 
 setupYearFilter();
 populateTrackSelect(trackSelect);
@@ -1301,11 +1422,41 @@ document.querySelector("#closeDialog").addEventListener("click", () => {
   editingId = null;
 });
 
-loadEntries().then((loadedEntries) => {
-  entries = normalizeEntries(loadedEntries);
-  updateYearOptions();
-  render();
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authMessage.textContent = "กำลังเข้าสู่ระบบ...";
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: authEmail.value.trim(),
+    password: authPassword.value,
+  });
+  if (error) authMessage.textContent = "เข้าสู่ระบบไม่สำเร็จ: " + error.message;
 });
+
+signUpButton.addEventListener("click", async () => {
+  if (!authEmail.reportValidity() || !authPassword.reportValidity()) return;
+  authMessage.textContent = "กำลังสร้างบัญชี...";
+  const { data, error } = await supabaseClient.auth.signUp({
+    email: authEmail.value.trim(),
+    password: authPassword.value,
+  });
+  if (error) {
+    authMessage.textContent = "สร้างบัญชีไม่สำเร็จ: " + error.message;
+    return;
+  }
+  authMessage.textContent = data.session
+    ? "สร้างบัญชีและเข้าสู่ระบบแล้ว"
+    : "สร้างบัญชีแล้ว กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ";
+});
+
+logoutButton.addEventListener("click", async () => {
+  await supabaseClient.auth.signOut();
+});
+
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+  window.setTimeout(() => applyAuthSession(session), 0);
+});
+
+bootstrapAuth();
 
 if (supabaseEnabled || apiEnabled) {
   window.addEventListener("focus", refreshEntriesFromApi);
@@ -1315,6 +1466,41 @@ if (supabaseEnabled || apiEnabled) {
   setInterval(() => {
     if (!document.hidden) refreshEntriesFromApi();
   }, SYNC_INTERVAL_MS);
+}
+
+async function bootstrapAuth() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    authMessage.textContent = "ตรวจสอบ session ไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่";
+    return;
+  }
+  await applyAuthSession(data.session);
+}
+
+async function applyAuthSession(session) {
+  if (!session) {
+    accessToken = "";
+    appStarted = false;
+    entries = [];
+    appShell.hidden = true;
+    authGate.hidden = false;
+    userEmail.textContent = "";
+    return;
+  }
+
+  accessToken = session.access_token;
+  userEmail.textContent = session.user?.email || "Signed in";
+  authGate.hidden = true;
+  appShell.hidden = false;
+  authMessage.textContent = "";
+
+  if (!appStarted) {
+    appStarted = true;
+    const loadedEntries = await loadEntries();
+    entries = normalizeEntries(loadedEntries);
+    updateYearOptions();
+    render();
+  }
 }
 
 async function loadEntries() {
@@ -1362,7 +1548,7 @@ async function fetchRemoteEntries() {
 }
 
 async function refreshEntriesFromApi() {
-  if ((!supabaseEnabled && !apiEnabled) || document.querySelector("#editDialog")?.open) return;
+  if ((!supabaseEnabled && !apiEnabled) || !accessToken || document.querySelector("#editDialog")?.open) return;
 
   try {
     entries = normalizeEntries(supabaseEnabled ? await fetchSupabaseEntries() : await fetchRemoteEntries());
@@ -1433,9 +1619,10 @@ async function saveEntries() {
 }
 
 function getSupabaseHeaders() {
+  if (!accessToken) throw new Error("Authentication required");
   return {
     apikey: SUPABASE_PUBLISHABLE_KEY,
-    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    Authorization: `Bearer ${accessToken}`,
   };
 }
 
